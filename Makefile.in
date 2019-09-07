@@ -1,0 +1,120 @@
+
+INCLUDES := -I./include
+
+DEFINES = LCUPM_BUILD
+
+TARGET = @target@
+
+
+LIBRARIES = ssl crypto curl jsoncpp
+
+
+CDIALECT := c11
+CXXDIALECT := c++17
+
+
+BUILD_STATIC = @static@
+BUILD_DYNAMIC = @shared@
+
+TARGETS =
+
+ifeq ($(BUILD_STATIC),yes)
+TARGETS += static
+endif
+
+ifeq ($(BUILD_DYNAMIC),yes)
+TARGETS += dynamic
+endif
+
+ARCHIVE_OUTPUT = lib@package_name@.a
+
+ifneq ($(findstring cygwin,$(TARGET)),)
+OUTPUT = @package_name@.dll
+endif
+
+ifneq ($(findstring linux,$(TARGET)),)
+OUTPUT = lib@package_name@.so
+endif
+
+INCLUDES := include lcupm/include
+
+LIBDIR = @libdir@
+HEADDIR = @includedir@
+
+BUILD_SALT := "$(shell cat /dev/urandom | head -c 256 | base64 | tr -d '\n')"
+
+INSTALL_TARGETS = $(foreach target,$(TARGETS),install-$(target)) install-headers
+
+ALL_CPP_FLAGS := $(foreach define,$(DEFINES),-D$(define)) $(foreach include,$(INCLUDES),-I$(include)) $(CPP_FLAGS)
+
+ALL_LD_FLAGS := $(foreach library,$(LIBRARIES),-l$(library)) $(LD_FLAGS) -shared
+
+ALL_CXX_FLAGS := $(ALL_CPP_FLAGS) $(CXX_FLAGS) -fPIC -std=$(CXXDIALECT)
+
+ALL_CFLAGS := $(ALL_CPP_FLAGS) $(CFLAGS) -fPIC -std=$(CDIALECT)
+
+OBJECTS := liblcupm/liblcupm.a
+
+WIN_OBJECTS := $(foreach obj,$(OBJECTS),win-$(obj))
+
+LIBRARY_INFO_OBJECT := out/LibraryInfo.o
+
+WIN_LIBRARY_INFO := win-out/LibraryInfo.o
+
+
+all: $(TARGETS)
+
+install: $(INSTALL_TARGETS)
+
+liblcupm/liblcupm.a: 
+	$(MAKE) ARCHIVE_OUTPUT=liblcupm.a -C liblcupm static
+
+clean:
+	rm -rf out/
+	rm -rf win-out/
+	rm -f package/liblcupm.json
+	rm -f $(OUTPUT)
+	rm -f $(ARCHIVE_OUTPUT)
+	rm -f $(WIN_OUTPUT)
+	
+distclean: clean
+	rm -rf config.cache
+	rm -rf config.log
+	rm -rf config.status
+	rm -f Makefile
+
+out/:
+	mkdir out
+
+win-out/:
+	mkdir win-out/
+
+static: $(ARCHIVE_OUTPUT)
+
+dynamic: $(OUTPUT)
+
+.PHONY: static dynamic windll winarchive all install install-static install-dynamic install-headers
+
+$(OUTPUT): $(OBJECTS) $(LIBRARY_INFO_OBJECT)
+	$(CXX) $(ALL_LD_FLAGS) -o $@ $^
+
+$(ARCHIVE_OUTPUT): $(OBJECTS) $(LIBRARY_INFO_OBJECT)
+	$(AR) rcs $(ARCHIVE_OUTPUT) $(OBJECTS) $(LIBRARY_INFO_OBJECT)
+
+out/%.o: src/%.cpp | out/
+	$(CXX) $(ALL_CXX_FLAGS) -c -o $@ $^
+	
+out/%.o: src/%.c | out/
+	$(CC) $(ALL_CFLAGS) -c -o $@ $^
+
+$(LIBRARY_INFO_OBJECT): $(LIBRARY_INFO_OBJECT:out/%.o=src/%.cpp) | out/ $(OBJECTS)
+	$(CXX) $(ALL_CXX_FLAGS) -DLCUPM_BUILD_SALT=$(BUILD_SALT) -DLCUPM_PROVIDER="@packageprovider@" -DLCUPM_PACKNAME="@packagename@" -c -o $@ $^ 
+
+install-static: static
+	install -m644 $(ARCHIVE_OUTPUT) $(LIBDIR)
+	
+install-dynamic: dynamic
+	install -m644 $(OUTPUT) $(LIBDIR)
+
+install-headers:
+	install -m755 include/lcupm $(LIBDIR)/lcupm

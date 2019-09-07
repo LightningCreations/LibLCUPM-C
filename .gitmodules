@@ -1,0 +1,3 @@
+[submodule "liblcupm"]
+	path = liblcupm
+	url = https://github.com/LightningCreations/LibLCUPM.git
